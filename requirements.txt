@@ -1,0 +1,20 @@
+flask
+numpy
+pandas
+joblib
+scikit-learn
+opencv-python
+ultralytics
+deepface
+# TensorFlow is required by DeepFace. Install the version that works with your Pi/Python build.
+tensorflow
+smbus2
+hrcalc
+gpiozero
+adafruit-circuitpython-mlx90614
+PyMuPDF
+pdf2image
+pytesseract
+Pillow
+holidays
+hijridate

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Smart Mirror Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Local Network Web Dashboard</p>
+        <h1>AI Smart Mirror Dashboard</h1>
+      </div>
+      <div class="header-actions">
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch color theme">🌙 Dark mode</button>
+        <div class="pill" id="server-pill">Backend: connecting...</div>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Dashboard tabs">
+      <button class="tab-btn active" data-tab="home-tab">Home</button>
+      <button class="tab-btn" data-tab="summary-tab">Summary</button>
+      <button class="tab-btn" data-tab="sensors-tab">Sensors / Camera / Labs</button>
+    </nav>
+
+    <section id="home-tab" class="tab-content active mirror-home-section" aria-label="Smart mirror home screen">
+      <div class="mirror-home">
+        <div class="mirror-left">
+          <div class="mirror-greeting" id="home-greeting">Good evening</div>
+          <div class="mirror-date" id="home-date-label">----</div>
+          <div class="mirror-time" id="home-time-label">--:--</div>
+
+          <div class="mirror-calendar month-view">
+            <div class="mirror-calendar-header">
+              <button class="mirror-cal-nav" id="home-calendar-prev" type="button" aria-label="Previous month">‹</button>
+              <div class="mirror-line-title" id="home-calendar-month-label">Calendar</div>
+              <button class="mirror-cal-nav" id="home-calendar-next" type="button" aria-label="Next month">›</button>
+            </div>
+            <div class="mirror-divider"></div>
+            <div class="mirror-weekdays" aria-hidden="true">
+              <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+            </div>
+            <div class="mirror-month-grid" id="home-calendar-grid" aria-label="Month calendar"></div>
+            <div class="mirror-note-panel">
+              <div class="mirror-note-date" id="home-note-date">Select a day</div>
+              <div class="mirror-day-events" id="home-day-events">No events</div>
+              <textarea id="home-note-text" placeholder="Add a note for this day"></textarea>
+              <button id="home-save-note-btn" class="mirror-note-save" type="button">Save note</button>
+              <div class="mirror-note-status" id="home-note-status"></div>
+            </div>
+            <div class="mirror-upcoming" id="home-upcoming-events"></div>
+          </div>
+        </div>
+
+        <div class="mirror-right">
+          <div class="mirror-weather-row">
+            <div class="mirror-weather-icon" id="home-weather-icon">☁</div>
+            <div>
+              <div class="mirror-weather-city" id="home-weather-city">Loading...</div>
+              <div class="mirror-weather-condition" id="home-weather-condition">---</div>
+            </div>
+          </div>
+          <div class="mirror-weather-temp" id="home-weather-temp">---</div>
+          <div class="mirror-muted" id="home-weather-feels">Feels like: ---</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="summary-tab" class="tab-content">
+      <section class="top-grid summary-widgets">
+        <article class="card calendar-card">
+          <div class="card-title">Calendar</div>
+          <input id="summary-calendar" type="date" />
+          <p class="muted">Quick calendar view for daily checkups.</p>
+        </article>
+
+        <article class="card center-card">
+          <div class="card-title">Current Date &amp; Time</div>
+          <div class="time" id="summary-time-label">--:--:--</div>
+          <div class="date" id="summary-date-label">----</div>
+          <div class="muted" id="summary-zone-label">Local time</div>
+        </article>
+
+        <article class="card center-card">
+          <div class="card-title">Current Weather</div>
+          <div class="weather-city" id="summary-weather-city">Loading...</div>
+          <div class="weather-temp" id="summary-weather-temp">---</div>
+          <div class="weather-condition" id="summary-weather-condition">---</div>
+          <div class="muted" id="summary-weather-feels">Feels like: ---</div>
+        </article>
+      </section>
+
+      <section class="summary-grid">
+        <article class="card workflow-card">
+          <div class="card-title row-title">
+            <span>Patient &amp; Save Flow</span>
+            <span class="pill" id="workflow-state">Not started</span>
+          </div>
+          <p class="muted">Saving follows this order: <strong>Camera first → Temperature → Heart Rate → Save to DB</strong>. PDF lab upload is optional.</p>
+
+          <div class="patient-grid">
+            <label class="label">Saved user</label>
+            <select id="user-select"></select>
+
+            <label class="label">User name</label>
+            <input id="name-input" placeholder="Enter user name" />
+
+            <label class="label">Date of birth</label>
+            <input id="dob-input" type="date" />
+
+            <label class="label">Age</label>
+            <input id="age-output" readonly placeholder="Calculated from DoB" />
+
+            <label class="label">Gender</label>
+            <select id="gender-input">
+              <option value=""></option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+
+            <label class="label symptoms-label">Symptoms</label>
+            <div class="symptom-picker">
+              <select id="symptoms-select" multiple size="7" aria-label="Select symptoms">
+                {% for symptom in symptom_options %}
+                <option value="{{ symptom }}">{{ symptom }}</option>
+                {% endfor %}
+              </select>
+              <div class="selected-tags" id="symptom-tags" aria-live="polite"></div>
+              <p class="muted">Hold Ctrl on Windows/Linux or Cmd on Mac to choose more than one symptom.</p>
+            </div>
+          </div>
+
+          <div class="button-row wrap face-actions">
+            <button id="refresh-btn">Refresh DB</button>
+            <button id="register-btn">Register Face</button>
+            <button id="update-btn">Update Face</button>
+            <button class="danger" id="delete-btn">Delete Face</button>
+          </div>
+
+          <div class="stepper">
+            <button id="start-flow-btn">Start Checkup</button>
+            <button id="capture-camera-btn">1. Capture Camera</button>
+            <button id="capture-temp-btn">2. Capture Temp</button>
+            <button id="capture-heart-btn">3. Capture Heart</button>
+            <button class="save" id="save-db-btn">4. Save to Database</button>
+          </div>
+          <textarea id="notes-input" placeholder="Optional notes for this checkup"></textarea>
+          <div class="notice" id="face-message">Ready.</div>
+        </article>
+
+        <article class="card status-card" id="summary-card">
+          <div class="card-title">Main Summary</div>
+          <div class="summary-kpis">
+            <div><span>Total users</span><strong id="db-total-users">0</strong></div>
+            <div><span>Total sessions</span><strong id="db-total-sessions">0</strong></div>
+            <div><span>Users with labs</span><strong id="db-total-labs">0</strong></div>
+          </div>
+          <div class="summary-list">
+            <div class="kv"><span>Selected user</span><strong id="summary-user">---</strong></div>
+            <div class="kv"><span>DoB / Age / Gender</span><strong id="summary-demographics">---</strong></div>
+            <div class="kv"><span>Symptoms</span><strong id="summary-symptoms">---</strong></div>
+            <div class="kv"><span>Pictures saved</span><strong id="summary-pics">---</strong></div>
+            <div class="kv"><span>Latest temperature</span><strong id="summary-temp">---</strong></div>
+            <div class="kv"><span>Latest heart / SpO2</span><strong id="summary-heart">---</strong></div>
+            <div class="kv"><span>Latest lab status</span><strong id="summary-lab">PDF optional / no lab required</strong></div>
+            <div class="kv"><span>Latest DB save</span><strong id="summary-saved-at">---</strong></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="summary-grid lower">
+        <article class="card status-card" id="fusion-card">
+          <div class="card-title">Live Sensor Fusion Screening</div>
+          <div class="value-medium" id="fusion-title">Collecting Data</div>
+          <div class="range" id="fusion-score">Fusion Score: ---</div>
+          <p class="analysis-text" id="fusion-detail">Waiting for data.</p>
+          <p class="muted" id="fusion-note">Screening summary only - not a medical diagnosis</p>
+        </article>
+
+        <article class="card">
+          <div class="card-title">Latest Saved Record</div>
+          <div class="record-table">
+            <div><span>Name</span><strong id="record-name">---</strong></div>
+            <div><span>Camera</span><strong id="record-camera">---</strong></div>
+            <div><span>Temp</span><strong id="record-temp">---</strong></div>
+            <div><span>Heart</span><strong id="record-heart">---</strong></div>
+            <div><span>Symptoms</span><strong id="record-symptoms">---</strong></div>
+            <div><span>Lab</span><strong id="record-lab">---</strong></div>
+          </div>
+        </article>
+      </section>
+    </section>
+
+    <section id="sensors-tab" class="tab-content">
+      <section class="sensor-grid">
+        <article class="card status-card" id="temp-card">
+          <div class="card-title">MLX90614 Temperature</div>
+          <div class="value-big" id="temp-value">---</div>
+          <p class="threshold">Thresholds: Low &lt; 36.1 °C | Normal 36.1–37.2 °C | High &gt; 37.2 °C | Use close forehead distance</p>
+          <div class="range" id="temp-range">Current Range: ---</div>
+          <div class="status" id="temp-status">Waiting for data</div>
+        </article>
+
+        <article class="card status-card" id="heart-card">
+          <div class="card-title">MAX30102 Heart Rate</div>
+          <div class="value-big" id="heart-bpm">---</div>
+          <p class="threshold">Thresholds: Low &lt; 60 BPM | Normal 60–100 BPM | High &gt; 100 BPM</p>
+          <div class="range" id="heart-range">Current Range: ---</div>
+          <div class="value-medium" id="heart-spo2">SpO2: ---</div>
+          <p class="threshold">Thresholds: Critical &lt; 90% | Low 90–94% | Normal 95–100%</p>
+          <div class="range" id="spo2-range">SpO2 Range: ---</div>
+          <div class="status" id="heart-status">Waiting for data</div>
+        </article>
+
+        <article class="card status-card" id="color-card">
+          <div class="card-title">TCS3200 Dominant Color</div>
+          <div class="value-big" id="color-dominant">---</div>
+          <div class="value-medium" id="color-rgb">R: --- &nbsp; G: --- &nbsp; B: ---</div>
+          <div class="status" id="color-status">Waiting for data</div>
+        </article>
+      </section>
+
+      <section class="main-grid">
+        <article class="card camera-card">
+          <div class="card-title row-title">
+            <span>Face Detection &amp; Recognition</span>
+            <span class="pill" id="camera-state">---</span>
+          </div>
+          <div class="camera-layout">
+            <div>
+              <img class="video" id="video-feed" src="/video_feed" alt="Camera feed" />
+            </div>
+            <div class="side-panel">
+              <img class="crop" id="face-crop" src="/face_crop_feed" alt="Face crop" />
+              <div class="kv"><span>Identity</span><strong id="face-identity">---</strong></div>
+              <div class="kv"><span>Status</span><strong id="face-status">Waiting for face</strong></div>
+              <div class="kv"><span>Distance / Confidence</span><strong id="face-distance">---</strong></div>
+              <p class="muted" id="camera-detail">Vision stack not loaded</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="card workflow-mini">
+          <div class="card-title">Save Step Status</div>
+          <div class="step-status" id="step-camera">1. Camera: not captured</div>
+          <div class="step-status" id="step-temp">2. Temperature: not captured</div>
+          <div class="step-status" id="step-heart">3. Heart: not captured</div>
+          <p class="muted">Use the Summary tab to start/capture/save the full database record.</p>
+        </article>
+      </section>
+
+      <section class="analysis-grid full-width">
+        <article class="card lab-card status-card" id="lab-card">
+          <div class="card-title row-title">
+            <span>Liver Lab Entry &amp; Screening</span>
+            <span class="pill" id="lab-state">No Lab Data</span>
+          </div>
+          <p class="muted">Lab values are optional. You can save the database record even if no PDF is uploaded and no lab values are entered.</p>
+          <form id="lab-form" class="lab-form">
+            {% for key, label in lab_value_fields %}
+              <label>
+                <span>{{ label }}</span>
+                <input name="{{ key }}" type="number" step="any" placeholder="Optional" />
+              </label>
+            {% endfor %}
+          </form>
+          <div class="button-row wrap">
+            <button id="save-lab-btn">Save Lab Results</button>
+            <button id="analyze-lab-btn">Analyze Ranges</button>
+            <button id="ai-lab-btn">AI Predict</button>
+          </div>
+          <div class="upload-row">
+            <input id="pdf-input" type="file" accept="application/pdf" />
+            <button id="upload-pdf-btn">Upload PDF</button>
+          </div>
+          <div class="lab-result">
+            <h3 id="lab-title">No Lab Data</h3>
+            <div class="range" id="lab-coverage">Coverage: ---</div>
+            <pre id="lab-detail">No analysis yet.</pre>
+            <pre id="lab-advice"></pre>
+            <p class="muted" id="lab-note">Screening support only - not a diagnosis.</p>
+          </div>
+        </article>
+      </section>
+    </section>
+  </main>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

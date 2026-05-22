@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+.env
+.venv/
+venv/
+vision_web/
+vision313/
+*.egg-info/
+
+# Local databases and runtime files
+smart_mirror.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and uploaded private files
+logs/*
+!logs/.gitkeep
+uploads/*
+!uploads/.gitkeep
+
+# Face database / personal biometric data
+FaceDB/*
+!FaceDB/.gitkeep
+FaceDB.rar
+*.rar
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Large/temporary exports
+*.zip
+*.7z
+*.tar
+*.gz
