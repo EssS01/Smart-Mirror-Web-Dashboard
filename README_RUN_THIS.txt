@@ -162,3 +162,25 @@ The Home and Summary tabs now display time in 12-hour AM/PM format.
 Home uses a short format such as 6:05 PM, while Summary uses a detailed format such as 6:05:30 PM.
 
 - Home page font color changed to pure white for better smart-mirror readability.
+
+REMOTE CONTROL / PHONE + PI DISPLAY UPDATE
+==========================================
+This version supports two browser roles:
+
+1) Raspberry Pi display screen:
+   http://127.0.0.1:5000/display
+
+2) Phone/tablet controller on the same Wi-Fi:
+   http://RASPBERRY_PI_IP:5000/controller
+
+Use the phone controller normally. The Raspberry Pi display follows the controller:
+- selected tab/screen
+- light/dark mode
+- selected user/profile fields
+- symptoms
+- notes/lab form text
+- Home calendar month/day selection
+- workflow action messages
+
+This is not HDMI/screen mirroring. It is local-network dashboard synchronization.
+The Raspberry Pi remains the backend/server, so camera and sensor readings still come from the Pi.

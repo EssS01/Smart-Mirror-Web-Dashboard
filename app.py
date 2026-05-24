@@ -154,6 +154,19 @@ _db_init_lock = threading.Lock()
 _capture_lock = threading.Lock()
 _capture_sessions = {}
 
+# Shared browser state for phone remote-control mode.
+# The Raspberry Pi display opens /display and follows changes sent from /controller.
+_remote_state_lock = threading.Lock()
+_remote_state = {
+    "active_tab": "home-tab",
+    "theme": "dark",
+    "form": {},
+    "calendar": {},
+    "message": "",
+    "updated_at": 0.0,
+    "updated_by": "server",
+}
+
 
 def db_connect():
     conn = sqlite3.connect(DB_PATH, timeout=15)
@@ -2262,10 +2275,33 @@ def save_calendar_note(note_date, note_text):
 # =========================
 # FLASK ROUTES
 # =========================
+def render_dashboard(view_mode="controller"):
+    lab_value_fields = [(key, label) for key, label in LAB_FIELDS if key not in ("age", "gender")]
+    return render_template(
+        "index.html",
+        lab_fields=LAB_FIELDS,
+        lab_value_fields=lab_value_fields,
+        symptom_options=SYMPTOM_OPTIONS,
+        view_mode=view_mode,
+    )
+
+
 @app.route("/")
 def index():
-    lab_value_fields = [(key, label) for key, label in LAB_FIELDS if key not in ("age", "gender")]
-    return render_template("index.html", lab_fields=LAB_FIELDS, lab_value_fields=lab_value_fields, symptom_options=SYMPTOM_OPTIONS)
+    # Default page remains a normal/controller dashboard.
+    return render_dashboard("controller")
+
+
+@app.route("/controller")
+def controller_page():
+    # Open this on the phone. Actions here are broadcast to the Pi display.
+    return render_dashboard("controller")
+
+
+@app.route("/display")
+def display_page():
+    # Open this on the Raspberry Pi screen. It follows the phone controller.
+    return render_dashboard("display")
 
 
 def mjpeg_generator(getter, delay=0.05):
@@ -2283,6 +2319,39 @@ def video_feed():
 @app.route("/face_crop_feed")
 def face_crop_feed():
     return Response(mjpeg_generator(camera_service.get_crop, delay=0.12), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/api/remote/state", methods=["GET"])
+def api_remote_state_get():
+    with _remote_state_lock:
+        state = dict(_remote_state)
+    return jsonify({"ok": True, "state": state})
+
+
+@app.route("/api/remote/state", methods=["POST"])
+def api_remote_state_post():
+    data = request.get_json(silent=True) or {}
+    source = str(data.get("source") or "controller")[:80]
+    allowed_tabs = {"home-tab", "summary-tab", "sensors-tab"}
+    with _remote_state_lock:
+        if data.get("active_tab") in allowed_tabs:
+            _remote_state["active_tab"] = data.get("active_tab")
+        if data.get("theme") in ("light", "dark"):
+            _remote_state["theme"] = data.get("theme")
+        if isinstance(data.get("form"), dict):
+            current = dict(_remote_state.get("form") or {})
+            current.update(data.get("form") or {})
+            _remote_state["form"] = current
+        if isinstance(data.get("calendar"), dict):
+            current = dict(_remote_state.get("calendar") or {})
+            current.update(data.get("calendar") or {})
+            _remote_state["calendar"] = current
+        if "message" in data:
+            _remote_state["message"] = str(data.get("message") or "")[:300]
+        _remote_state["updated_at"] = time.time()
+        _remote_state["updated_by"] = source
+        state = dict(_remote_state)
+    return jsonify({"ok": True, "state": state})
 
 
 @app.route("/api/status")

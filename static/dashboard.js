@@ -8,12 +8,24 @@ let homeCalendarCursor = new Date();
 let selectedHomeCalendarDate = null;
 let currentHomeCalendarPayload = null;
 
-function applyTheme(theme) {
+const VIEW_MODE = document.body?.dataset.viewMode || (location.pathname.includes('/display') ? 'display' : 'controller');
+const IS_DISPLAY = VIEW_MODE === 'display';
+const CLIENT_ID = `${VIEW_MODE}-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+let applyingRemote = false;
+let lastRemoteVersion = 0;
+let remotePushTimer = null;
+
+function activeTabId() {
+  return document.querySelector('.tab-content.active')?.id || 'home-tab';
+}
+
+function applyTheme(theme, broadcast = true) {
   currentTheme = theme === 'light' ? 'light' : 'dark';
   document.documentElement.dataset.theme = currentTheme;
   localStorage.setItem('smartMirrorTheme', currentTheme);
   const btn = $('theme-toggle');
   if (btn) btn.textContent = currentTheme === 'light' ? '🌙 Dark mode' : '☀️ Light mode';
+  if (broadcast && !applyingRemote && !IS_DISPLAY) scheduleRemoteSync({theme: currentTheme});
 }
 
 function toggleTheme() {
@@ -42,6 +54,7 @@ function setCardState(id, state) {
 
 function message(text) {
   setText('face-message', text);
+  if (!applyingRemote && !IS_DISPLAY) scheduleRemoteSync({message: text || ''});
 }
 
 async function api(path, options = {}) {
@@ -52,6 +65,115 @@ async function api(path, options = {}) {
   const data = await res.json().catch(() => ({ok: false, message: 'Invalid backend response'}));
   if (!res.ok && !data.message) data.message = `HTTP ${res.status}`;
   return data;
+}
+
+function remoteFormSnapshot() {
+  return {
+    selected_user: $('user-select')?.value || '',
+    name: $('name-input')?.value || '',
+    dob: $('dob-input')?.value || '',
+    age: $('age-output')?.value || '',
+    gender: $('gender-input')?.value || '',
+    symptoms: getSelectedSymptoms(),
+    notes: $('notes-input')?.value || '',
+    lab_values: labValuesFromFormSafe(),
+  };
+}
+
+function labValuesFromFormSafe() {
+  try {
+    return labValuesFromForm();
+  } catch (_) {
+    return {};
+  }
+}
+
+function remoteCalendarSnapshot() {
+  return {
+    year: homeCalendarCursor.getFullYear(),
+    month: homeCalendarCursor.getMonth() + 1,
+    selected_date: selectedHomeCalendarDate,
+    note_text: $('home-note-text')?.value || '',
+  };
+}
+
+function scheduleRemoteSync(extra = {}, delay = 120) {
+  if (IS_DISPLAY || applyingRemote) return;
+  clearTimeout(remotePushTimer);
+  remotePushTimer = setTimeout(() => pushRemoteState(extra), delay);
+}
+
+async function pushRemoteState(extra = {}) {
+  if (IS_DISPLAY || applyingRemote) return;
+  const payload = {
+    source: CLIENT_ID,
+    active_tab: activeTabId(),
+    theme: currentTheme,
+    form: remoteFormSnapshot(),
+    calendar: remoteCalendarSnapshot(),
+    ...extra,
+  };
+  try {
+    const data = await api('/api/remote/state', {method: 'POST', body: JSON.stringify(payload)});
+    if (data?.state?.updated_at) lastRemoteVersion = Math.max(lastRemoteVersion, data.state.updated_at);
+    setText('remote-pill', 'Remote: controller');
+  } catch (_) {
+    setText('remote-pill', 'Remote: sync error');
+  }
+}
+
+async function pollRemoteState() {
+  if (!IS_DISPLAY) return;
+  try {
+    const data = await api('/api/remote/state');
+    const state = data?.state || {};
+    const version = Number(state.updated_at || 0);
+    if (!data.ok || version <= lastRemoteVersion) {
+      setText('remote-pill', 'Remote: display');
+      return;
+    }
+    lastRemoteVersion = version;
+    await applyRemoteState(state);
+    setText('remote-pill', 'Remote: following phone');
+  } catch (_) {
+    setText('remote-pill', 'Remote: disconnected');
+  }
+}
+
+async function applyRemoteState(state) {
+  applyingRemote = true;
+  try {
+    if (state.theme) applyTheme(state.theme, false);
+    if (state.active_tab) activateTab(state.active_tab, false);
+
+    const form = state.form || {};
+    if ('selected_user' in form) setValue('user-select', form.selected_user || '');
+    if ('name' in form) setValue('name-input', form.name || '');
+    if ('dob' in form) setValue('dob-input', form.dob || '');
+    if ('gender' in form) setValue('gender-input', form.gender || '');
+    if ('symptoms' in form) setSelectedSymptoms(form.symptoms || []);
+    if ('notes' in form) setValue('notes-input', form.notes || '');
+    if (form.lab_values) fillLabForm(form.lab_values);
+    updateAge();
+
+    const cal = state.calendar || {};
+    if (cal.year && cal.month) {
+      const requested = new Date(Number(cal.year), Number(cal.month) - 1, 1);
+      const monthChanged = requested.getFullYear() !== homeCalendarCursor.getFullYear() || requested.getMonth() !== homeCalendarCursor.getMonth();
+      homeCalendarCursor = requested;
+      if (cal.selected_date) selectedHomeCalendarDate = cal.selected_date;
+      if (monthChanged || !currentHomeCalendarPayload) {
+        await loadHomeCalendar(homeCalendarCursor.getFullYear(), homeCalendarCursor.getMonth() + 1);
+      } else {
+        renderSelectedHomeDay();
+      }
+      if ('note_text' in cal) setValue('home-note-text', cal.note_text || '');
+    }
+
+    if (state.message) setText('face-message', state.message);
+  } finally {
+    applyingRemote = false;
+  }
 }
 
 function calculateAgeFromDob(dobString) {
@@ -210,6 +332,7 @@ function renderHomeCalendar(payload) {
     btn.addEventListener('click', () => {
       selectedHomeCalendarDate = day.date;
       renderSelectedHomeDay();
+      scheduleRemoteSync({calendar: remoteCalendarSnapshot()});
     });
     grid.appendChild(btn);
   });
@@ -247,6 +370,7 @@ function changeHomeMonth(offset) {
   homeCalendarCursor = new Date(homeCalendarCursor.getFullYear(), homeCalendarCursor.getMonth() + offset, 1);
   selectedHomeCalendarDate = null;
   loadHomeCalendar(homeCalendarCursor.getFullYear(), homeCalendarCursor.getMonth() + 1);
+  scheduleRemoteSync({calendar: remoteCalendarSnapshot()});
 }
 
 async function saveHomeNote() {
@@ -257,6 +381,7 @@ async function saveHomeNote() {
   });
   setText('home-note-status', data.message || (data.ok ? 'Saved.' : 'Error.'));
   await loadHomeCalendar(homeCalendarCursor.getFullYear(), homeCalendarCursor.getMonth() + 1);
+  scheduleRemoteSync({calendar: remoteCalendarSnapshot(), message: data.message || 'Calendar note saved'});
 }
 
 function patientPayload() {
@@ -494,14 +619,16 @@ async function workflowPost(path) {
   message(data.message || (data.ok ? 'Done.' : 'Error.'));
   if (data.capture) renderCapture(data.capture);
   await pollDbSummary();
+  scheduleRemoteSync({message: data.message || ''});
 }
 
-function activateTab(tabId) {
+function activateTab(tabId, broadcast = true) {
   const isHome = tabId === 'home-tab';
   document.querySelectorAll('.tab-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
   document.querySelectorAll('.tab-content').forEach((tab) => tab.classList.toggle('active', tab.id === tabId));
   document.body.classList.toggle('home-mode', isHome);
   document.documentElement.classList.toggle('home-mode-root', isHome);
+  if (broadcast && !applyingRemote && !IS_DISPLAY) scheduleRemoteSync({active_tab: tabId});
 }
 
 $('theme-toggle')?.addEventListener('click', toggleTheme);
@@ -510,8 +637,12 @@ $('home-calendar-prev')?.addEventListener('click', () => changeHomeMonth(-1));
 $('home-calendar-next')?.addEventListener('click', () => changeHomeMonth(1));
 $('home-save-note-btn')?.addEventListener('click', saveHomeNote);
 
-$('dob-input')?.addEventListener('input', updateAge);
-$('symptoms-select')?.addEventListener('change', renderSymptomTags);
+$('dob-input')?.addEventListener('input', () => { updateAge(); scheduleRemoteSync(); });
+$('gender-input')?.addEventListener('change', () => scheduleRemoteSync());
+$('notes-input')?.addEventListener('input', () => scheduleRemoteSync({}, 250));
+$('home-note-text')?.addEventListener('input', () => scheduleRemoteSync({calendar: remoteCalendarSnapshot()}, 250));
+$('symptoms-select')?.addEventListener('change', () => { renderSymptomTags(); scheduleRemoteSync(); });
+labForm?.addEventListener('input', () => scheduleRemoteSync({}, 250));
 
 $('user-select').addEventListener('change', () => {
   selectedUser = $('user-select').value;
@@ -520,12 +651,15 @@ $('user-select').addEventListener('change', () => {
   else setValue('name-input', selectedUser);
   loadLabForSelected();
   pollDbSummary();
+  scheduleRemoteSync();
 });
 
+$('name-input')?.addEventListener('input', () => scheduleRemoteSync({}, 250));
 $('name-input')?.addEventListener('change', () => {
   selectedUser = currentName();
   loadLabForSelected();
   pollDbSummary();
+  scheduleRemoteSync();
 });
 
 $('refresh-btn').addEventListener('click', async () => {
@@ -626,6 +760,12 @@ window.addEventListener('load', () => {
   renderSymptomTags();
   pollStatus();
   pollDbSummary();
+  if (IS_DISPLAY) {
+    pollRemoteState();
+    setInterval(pollRemoteState, 300);
+  } else {
+    pushRemoteState({message: 'Controller connected'});
+  }
   setInterval(pollStatus, 700);
   setInterval(pollDbSummary, 3000);
 });
