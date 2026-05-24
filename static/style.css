@@ -929,3 +929,185 @@ body[data-view-mode="controller"] .mode-link[href="/controller"] {
   color: var(--accent);
   border-color: rgba(82, 214, 255, 0.6);
 }
+
+/* 2026-05 update: full black/white dashboard consistency */
+:root,
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --panel: #050505;
+  --panel-2: #0d0d0d;
+  --text: #ffffff;
+  --title: #ffffff;
+  --soft-text: #f2f2f2;
+  --muted: rgba(255,255,255,0.68);
+  --line: rgba(255,255,255,0.22);
+  --accent: #ffffff;
+  --green: #ffffff;
+  --yellow: rgba(255,255,255,0.84);
+  --red: #ffffff;
+  --shadow: none;
+  --card-gradient: none;
+  --field-bg: #0b0b0b;
+  --soft-bg: rgba(255,255,255,0.06);
+}
+
+html,
+body {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+.card,
+.tabs,
+.summary-kpis div,
+.record-table div,
+.step-status,
+.notice,
+pre,
+.range,
+.status,
+.pill,
+.mode-link,
+.tag {
+  background: rgba(255,255,255,0.045) !important;
+  border-color: rgba(255,255,255,0.22) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.card-title,
+h1,
+.value-big,
+.value-medium,
+.time,
+.date,
+.weather-city,
+.weather-temp,
+.weather-condition,
+.kv strong,
+.record-table strong,
+.summary-kpis strong,
+.step-status,
+.lab-result h3 {
+  color: #ffffff !important;
+}
+
+.muted,
+.threshold,
+.status,
+.kv span,
+.record-table span,
+.summary-kpis span,
+.label,
+.lab-form label span,
+.empty-tag {
+  color: rgba(255,255,255,0.70) !important;
+}
+
+input,
+select,
+textarea,
+button,
+#calendar,
+#summary-calendar,
+#symptoms-select {
+  background: #050505 !important;
+  color: #ffffff !important;
+  border-color: rgba(255,255,255,0.24) !important;
+  box-shadow: none !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255,255,255,0.46) !important;
+}
+
+button,
+button.save,
+button.danger,
+.tab-btn.active,
+.theme-toggle {
+  background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.055)) !important;
+  color: #ffffff !important;
+}
+
+button:hover,
+.mode-link:hover,
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(255,255,255,0.72) !important;
+}
+
+.state-ready,
+.state-processing,
+.state-fail {
+  border-color: rgba(255,255,255,0.32) !important;
+  box-shadow: none !important;
+}
+.state-ready .range,
+.state-ready .status,
+.state-ready .pill,
+.state-processing .range,
+.state-processing .status,
+.state-processing .pill,
+.state-fail .range,
+.state-fail .status,
+.state-fail .pill {
+  color: #ffffff !important;
+}
+
+.video,
+.crop {
+  border-color: rgba(255,255,255,0.22) !important;
+  background: #000000 !important;
+}
+
+.pdf-upload-row input[type="file"] {
+  min-height: 47px;
+  cursor: pointer;
+}
+#pdf-selected-label {
+  margin: 8px 0 0;
+}
+
+body.home-mode .tabs,
+body.home-mode .tab-btn.active,
+body.home-mode .mirror-note-panel,
+body.home-mode .mirror-event-chip,
+body.home-mode .mirror-cal-nav,
+body.home-mode .mirror-note-save {
+  background: rgba(255,255,255,0.045) !important;
+  border-color: rgba(255,255,255,0.22) !important;
+}
+
+/* PDF upload status */
+.pdf-upload-status {
+  margin: 6px 0 0;
+  color: #ffffff;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.06);
+}
+.pdf-upload-status.ok { border-color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.12); }
+.pdf-upload-status.warn { border-color: rgba(255,255,255,0.48); background: rgba(255,255,255,0.09); }
+.pdf-upload-status.error { border-color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.16); }
+
+/* 2026-05 update: Patient/save flow moved into Sensors tab */
+.workflow-section {
+  margin-bottom: 18px;
+}
+.sensors-workflow-card {
+  width: 100%;
+}
+#summary-tab .summary-grid {
+  grid-template-columns: 1fr;
+}
+
+/* 2026-05 update: remove theme switch completely */
+.theme-toggle {
+  display: none !important;
+}

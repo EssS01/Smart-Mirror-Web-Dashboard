@@ -3,7 +3,7 @@ const labForm = $('lab-form');
 let selectedUser = '';
 let dbUsersByName = {};
 let lastStatus = null;
-let currentTheme = localStorage.getItem('smartMirrorTheme') || 'dark';
+let currentTheme = 'dark';
 let homeCalendarCursor = new Date();
 let selectedHomeCalendarDate = null;
 let currentHomeCalendarPayload = null;
@@ -14,22 +14,21 @@ const CLIENT_ID = `${VIEW_MODE}-${Math.random().toString(36).slice(2)}-${Date.no
 let applyingRemote = false;
 let lastRemoteVersion = 0;
 let remotePushTimer = null;
+let remoteScrollTimer = null;
+let pendingRemoteScroll = false;
 
 function activeTabId() {
   return document.querySelector('.tab-content.active')?.id || 'home-tab';
 }
 
-function applyTheme(theme, broadcast = true) {
-  currentTheme = theme === 'light' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = currentTheme;
-  localStorage.setItem('smartMirrorTheme', currentTheme);
-  const btn = $('theme-toggle');
-  if (btn) btn.textContent = currentTheme === 'light' ? '🌙 Dark mode' : '☀️ Light mode';
-  if (broadcast && !applyingRemote && !IS_DISPLAY) scheduleRemoteSync({theme: currentTheme});
+function applyTheme(theme = 'dark', broadcast = false) {
+  // Theme switching was removed by request. Keep the dashboard locked to black/white.
+  currentTheme = 'dark';
+  document.documentElement.dataset.theme = 'dark';
 }
 
 function toggleTheme() {
-  applyTheme(currentTheme === 'light' ? 'dark' : 'light');
+  applyTheme('dark', false);
 }
 
 
@@ -54,17 +53,36 @@ function setCardState(id, state) {
 
 function message(text) {
   setText('face-message', text);
-  if (!applyingRemote && !IS_DISPLAY) scheduleRemoteSync({message: text || ''});
+  if (!applyingRemote) scheduleRemoteMetaSync({message: text || ''});
+}
+
+function setPdfStatus(text, state = '') {
+  const el = $('pdf-upload-status');
+  if (!el) return;
+  el.textContent = text || 'No PDF uploaded yet. This step is optional.';
+  el.classList.remove('ok', 'warn', 'error');
+  if (state) el.classList.add(state);
+}
+
+function applyPdfRemoteStatus(status = {}) {
+  if (!status || typeof status !== 'object') return;
+  if (status.selected_label) setText('pdf-selected-label', status.selected_label);
+  if (status.message) setPdfStatus(status.message, status.state || '');
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: options.body instanceof FormData ? {} : {'Content-Type': 'application/json'},
-    ...options,
-  });
-  const data = await res.json().catch(() => ({ok: false, message: 'Invalid backend response'}));
-  if (!res.ok && !data.message) data.message = `HTTP ${res.status}`;
-  return data;
+  try {
+    const res = await fetch(path, {
+      headers: options.body instanceof FormData ? {} : {'Content-Type': 'application/json'},
+      ...options,
+    });
+    const data = await res.json().catch(() => ({ok: false, message: 'Invalid backend response'}));
+    if (!res.ok && !data.message) data.message = `HTTP ${res.status}`;
+    if (!res.ok) data.ok = false;
+    return data;
+  } catch (err) {
+    return {ok: false, message: `Upload/backend connection failed: ${err.message || err}`};
+  }
 }
 
 function remoteFormSnapshot() {
@@ -77,6 +95,18 @@ function remoteFormSnapshot() {
     symptoms: getSelectedSymptoms(),
     notes: $('notes-input')?.value || '',
     lab_values: labValuesFromFormSafe(),
+  };
+}
+
+function remotePatientSnapshot() {
+  return {
+    selected_user: $('user-select')?.value || '',
+    name: $('name-input')?.value || '',
+    dob: $('dob-input')?.value || '',
+    age: $('age-output')?.value || '',
+    gender: $('gender-input')?.value || '',
+    symptoms: getSelectedSymptoms(),
+    notes: $('notes-input')?.value || '',
   };
 }
 
@@ -97,22 +127,70 @@ function remoteCalendarSnapshot() {
   };
 }
 
-function scheduleRemoteSync(extra = {}, delay = 120) {
-  if (IS_DISPLAY || applyingRemote) return;
-  clearTimeout(remotePushTimer);
-  remotePushTimer = setTimeout(() => pushRemoteState(extra), delay);
+function remoteScrollSnapshot() {
+  const doc = document.documentElement;
+  const maxY = Math.max(0, doc.scrollHeight - window.innerHeight);
+  const maxX = Math.max(0, doc.scrollWidth - window.innerWidth);
+  return {
+    active_tab: activeTabId(),
+    x: Math.round(window.scrollX || 0),
+    y: Math.round(window.scrollY || 0),
+    ratio_x: maxX > 0 ? (window.scrollX || 0) / maxX : 0,
+    ratio_y: maxY > 0 ? (window.scrollY || 0) / maxY : 0,
+    max_y: Math.round(maxY),
+  };
 }
 
-async function pushRemoteState(extra = {}) {
-  if (IS_DISPLAY || applyingRemote) return;
+function scheduleRemoteScrollSync() {
+  // Any active screen can drive the other screens.
+  if (applyingRemote) return;
+  pendingRemoteScroll = true;
+  clearTimeout(remoteScrollTimer);
+  remoteScrollTimer = setTimeout(() => {
+    pendingRemoteScroll = false;
+    pushRemoteState({active_tab: activeTabId(), scroll: remoteScrollSnapshot()}, false);
+  }, 80);
+}
+
+function applyRemoteScroll(scroll) {
+  if (!scroll || scroll.active_tab !== activeTabId()) return;
+  const doc = document.documentElement;
+  const maxY = Math.max(0, doc.scrollHeight - window.innerHeight);
+  const maxX = Math.max(0, doc.scrollWidth - window.innerWidth);
+  const targetY = Math.round(maxY * Number(scroll.ratio_y || 0));
+  const targetX = Math.round(maxX * Number(scroll.ratio_x || 0));
+  const previousApplying = applyingRemote;
+  applyingRemote = true;
+  window.scrollTo({left: targetX, top: targetY, behavior: 'auto'});
+  setTimeout(() => { applyingRemote = previousApplying; }, 120);
+}
+
+function scheduleRemoteSync(extra = {}, delay = 120) {
+  // Form/action sync. Includes the current form snapshot on purpose.
+  if (applyingRemote) return;
+  clearTimeout(remotePushTimer);
+  remotePushTimer = setTimeout(() => pushRemoteState(extra, true), delay);
+}
+
+function scheduleRemoteMetaSync(extra = {}, delay = 80) {
+  // Metadata-only sync for tab/scroll/message updates so stale forms do not overwrite another device.
+  if (applyingRemote) return;
+  clearTimeout(remotePushTimer);
+  remotePushTimer = setTimeout(() => pushRemoteState(extra, false), delay);
+}
+
+async function pushRemoteState(extra = {}, includeSnapshot = true) {
+  if (applyingRemote) return;
   const payload = {
     source: CLIENT_ID,
-    active_tab: activeTabId(),
-    theme: currentTheme,
-    form: remoteFormSnapshot(),
-    calendar: remoteCalendarSnapshot(),
+    view_mode: VIEW_MODE,
     ...extra,
   };
+  if (!('active_tab' in payload)) payload.active_tab = activeTabId();
+  if (includeSnapshot) {
+    if (!('form' in payload)) payload.form = remoteFormSnapshot();
+    if (!('calendar' in payload)) payload.calendar = remoteCalendarSnapshot();
+  }
   try {
     const data = await api('/api/remote/state', {method: 'POST', body: JSON.stringify(payload)});
     if (data?.state?.updated_at) lastRemoteVersion = Math.max(lastRemoteVersion, data.state.updated_at);
@@ -123,18 +201,18 @@ async function pushRemoteState(extra = {}) {
 }
 
 async function pollRemoteState() {
-  if (!IS_DISPLAY) return;
   try {
     const data = await api('/api/remote/state');
     const state = data?.state || {};
     const version = Number(state.updated_at || 0);
-    if (!data.ok || version <= lastRemoteVersion) {
-      setText('remote-pill', 'Remote: display');
+    const updatedBy = String(state.updated_by || '');
+    if (!data.ok || version <= lastRemoteVersion || updatedBy === CLIENT_ID) {
+      setText('remote-pill', `Remote: ${VIEW_MODE}`);
       return;
     }
     lastRemoteVersion = version;
     await applyRemoteState(state);
-    setText('remote-pill', 'Remote: following phone');
+    setText('remote-pill', `Remote: synced from ${state.updated_view || 'other screen'}`);
   } catch (_) {
     setText('remote-pill', 'Remote: disconnected');
   }
@@ -171,6 +249,17 @@ async function applyRemoteState(state) {
     }
 
     if (state.message) setText('face-message', state.message);
+    if (state.capture) renderCapture(state.capture);
+    if (state.lab_values) fillLabForm(state.lab_values);
+    if (state.lab_analysis) showLabAnalysis(state.lab_analysis);
+    if (state.pdf_status) applyPdfRemoteStatus(state.pdf_status);
+    if (state.summary) renderSummary(state.summary);
+    if (state.scroll) {
+      requestAnimationFrame(() => applyRemoteScroll(state.scroll));
+    }
+    // Refresh backend-driven live data immediately after applying a remote action.
+    pollStatus();
+    pollDbSummary();
   } finally {
     applyingRemote = false;
   }
@@ -332,7 +421,7 @@ function renderHomeCalendar(payload) {
     btn.addEventListener('click', () => {
       selectedHomeCalendarDate = day.date;
       renderSelectedHomeDay();
-      scheduleRemoteSync({calendar: remoteCalendarSnapshot()});
+      scheduleRemoteMetaSync({calendar: remoteCalendarSnapshot()});
     });
     grid.appendChild(btn);
   });
@@ -370,7 +459,7 @@ function changeHomeMonth(offset) {
   homeCalendarCursor = new Date(homeCalendarCursor.getFullYear(), homeCalendarCursor.getMonth() + offset, 1);
   selectedHomeCalendarDate = null;
   loadHomeCalendar(homeCalendarCursor.getFullYear(), homeCalendarCursor.getMonth() + 1);
-  scheduleRemoteSync({calendar: remoteCalendarSnapshot()});
+  scheduleRemoteMetaSync({calendar: remoteCalendarSnapshot()});
 }
 
 async function saveHomeNote() {
@@ -381,7 +470,7 @@ async function saveHomeNote() {
   });
   setText('home-note-status', data.message || (data.ok ? 'Saved.' : 'Error.'));
   await loadHomeCalendar(homeCalendarCursor.getFullYear(), homeCalendarCursor.getMonth() + 1);
-  scheduleRemoteSync({calendar: remoteCalendarSnapshot(), message: data.message || 'Calendar note saved'});
+  scheduleRemoteMetaSync({calendar: remoteCalendarSnapshot(), message: data.message || 'Calendar note saved'});
 }
 
 function patientPayload() {
@@ -619,7 +708,7 @@ async function workflowPost(path) {
   message(data.message || (data.ok ? 'Done.' : 'Error.'));
   if (data.capture) renderCapture(data.capture);
   await pollDbSummary();
-  scheduleRemoteSync({message: data.message || ''});
+  scheduleRemoteSync({message: data.message || '', capture: data.capture || null, form: remoteFormSnapshot(), scroll: remoteScrollSnapshot()});
 }
 
 function activateTab(tabId, broadcast = true) {
@@ -628,20 +717,20 @@ function activateTab(tabId, broadcast = true) {
   document.querySelectorAll('.tab-content').forEach((tab) => tab.classList.toggle('active', tab.id === tabId));
   document.body.classList.toggle('home-mode', isHome);
   document.documentElement.classList.toggle('home-mode-root', isHome);
-  if (broadcast && !applyingRemote && !IS_DISPLAY) scheduleRemoteSync({active_tab: tabId});
+  if (broadcast && !applyingRemote) scheduleRemoteMetaSync({active_tab: tabId, scroll: remoteScrollSnapshot()});
 }
 
-$('theme-toggle')?.addEventListener('click', toggleTheme);
 document.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
+window.addEventListener('scroll', scheduleRemoteScrollSync, {passive: true});
 $('home-calendar-prev')?.addEventListener('click', () => changeHomeMonth(-1));
 $('home-calendar-next')?.addEventListener('click', () => changeHomeMonth(1));
 $('home-save-note-btn')?.addEventListener('click', saveHomeNote);
 
-$('dob-input')?.addEventListener('input', () => { updateAge(); scheduleRemoteSync(); });
-$('gender-input')?.addEventListener('change', () => scheduleRemoteSync());
-$('notes-input')?.addEventListener('input', () => scheduleRemoteSync({}, 250));
-$('home-note-text')?.addEventListener('input', () => scheduleRemoteSync({calendar: remoteCalendarSnapshot()}, 250));
-$('symptoms-select')?.addEventListener('change', () => { renderSymptomTags(); scheduleRemoteSync(); });
+$('dob-input')?.addEventListener('input', () => { updateAge(); scheduleRemoteSync({form: remotePatientSnapshot()}); });
+$('gender-input')?.addEventListener('change', () => scheduleRemoteSync({form: remotePatientSnapshot()}));
+$('notes-input')?.addEventListener('input', () => scheduleRemoteSync({form: remotePatientSnapshot()}, 250));
+$('home-note-text')?.addEventListener('input', () => scheduleRemoteMetaSync({calendar: remoteCalendarSnapshot()}, 250));
+$('symptoms-select')?.addEventListener('change', () => { renderSymptomTags(); scheduleRemoteSync({form: remotePatientSnapshot()}); });
 labForm?.addEventListener('input', () => scheduleRemoteSync({}, 250));
 
 $('user-select').addEventListener('change', () => {
@@ -651,15 +740,15 @@ $('user-select').addEventListener('change', () => {
   else setValue('name-input', selectedUser);
   loadLabForSelected();
   pollDbSummary();
-  scheduleRemoteSync();
+  scheduleRemoteSync({form: remotePatientSnapshot()});
 });
 
-$('name-input')?.addEventListener('input', () => scheduleRemoteSync({}, 250));
+$('name-input')?.addEventListener('input', () => scheduleRemoteSync({form: remotePatientSnapshot()}, 250));
 $('name-input')?.addEventListener('change', () => {
   selectedUser = currentName();
   loadLabForSelected();
   pollDbSummary();
-  scheduleRemoteSync();
+  scheduleRemoteSync({form: remotePatientSnapshot()});
 });
 
 $('refresh-btn').addEventListener('click', async () => {
@@ -699,6 +788,7 @@ $('save-db-btn').addEventListener('click', async () => {
   message(data.message || (data.ok ? 'Saved.' : 'Error.'));
   if (data.summary) renderSummary(data.summary);
   await pollDbSummary();
+  scheduleRemoteSync({message: data.message || '', summary: data.summary || null, form: remoteFormSnapshot(), scroll: remoteScrollSnapshot()});
 });
 
 $('save-lab-btn').addEventListener('click', async () => {
@@ -709,6 +799,7 @@ $('save-lab-btn').addEventListener('click', async () => {
   message(data.message || 'Lab results saved.');
   if (data.analysis) showLabAnalysis(data.analysis);
   await pollDbSummary();
+  scheduleRemoteSync({message: data.message || 'Lab results saved.', lab_values: data.values || labValuesFromForm(), lab_analysis: data.analysis || null, form: remoteFormSnapshot()});
 });
 
 $('analyze-lab-btn').addEventListener('click', async () => {
@@ -720,6 +811,7 @@ $('analyze-lab-btn').addEventListener('click', async () => {
   if (data.analysis) showLabAnalysis(data.analysis);
   message(data.ok ? 'Lab screening updated.' : data.message);
   await pollDbSummary();
+  scheduleRemoteSync({message: data.ok ? 'Lab screening updated.' : data.message, lab_values: labValuesFromForm(), lab_analysis: data.analysis || null, form: remoteFormSnapshot()});
 });
 
 $('ai-lab-btn').addEventListener('click', async () => {
@@ -730,24 +822,89 @@ $('ai-lab-btn').addEventListener('click', async () => {
   const data = await api(`/api/lab/${encodeURIComponent(name)}/predict`, {method: 'POST', body: JSON.stringify({})});
   if (data.analysis) showLabAnalysis(data.analysis);
   message(data.ok ? 'AI lab prediction updated.' : data.message);
+  scheduleRemoteSync({message: data.ok ? 'AI lab prediction updated.' : data.message, lab_values: labValuesFromForm(), lab_analysis: data.analysis || null, form: remoteFormSnapshot()});
 });
 
-$('upload-pdf-btn').addEventListener('click', async () => {
+let pdfPickerOpenedByUploadButton = false;
+
+async function uploadSelectedPdf(file) {
   const name = currentName();
-  const file = $('pdf-input').files[0];
-  if (!name) return message('Pick or enter a user first.');
-  if (!file) return message('Choose a PDF first.');
+  if (!name) {
+    setPdfStatus('Enter or select a user name before uploading the PDF.', 'warn');
+    message('Pick or enter a user first.');
+    return;
+  }
+  if (!file) {
+    setPdfStatus('No PDF selected. Choose a PDF file first.', 'warn');
+    return;
+  }
+  const btn = $('upload-pdf-btn');
   const fd = new FormData();
-  fd.append('pdf', file);
+  fd.append('pdf', file, file.name || 'lab_report.pdf');
+  if (btn) btn.disabled = true;
+  const uploadMsg = `Uploading PDF: ${file.name || 'lab_report.pdf'} ...`;
+  setPdfStatus(uploadMsg, 'warn');
+  message(uploadMsg);
+  scheduleRemoteMetaSync({pdf_status: {message: uploadMsg, state: 'warn', selected_label: `Selected PDF: ${file.name || 'lab_report.pdf'}.`}});
   const data = await api(`/api/lab/${encodeURIComponent(name)}/upload_pdf`, {method: 'POST', body: fd});
-  message(data.message || 'PDF processed.');
+  if (btn) btn.disabled = false;
+
+  if (!data.ok) {
+    const err = data.message || 'PDF upload failed.';
+    setPdfStatus(err, 'error');
+    message(err);
+    scheduleRemoteMetaSync({pdf_status: {message: err, state: 'error'}});
+    return;
+  }
+
+  const msg = data.message || 'PDF processed.';
+  setPdfStatus(msg, 'ok');
+  message(msg);
   if (data.values) fillLabForm(data.values);
   if (data.analysis) showLabAnalysis(data.analysis);
   await pollDbSummary();
+  scheduleRemoteSync({
+    message: msg,
+    lab_values: data.values || labValuesFromForm(),
+    lab_analysis: data.analysis || null,
+    pdf_status: {message: msg, state: 'ok', selected_label: `Selected PDF: ${file.name || 'lab_report.pdf'}.`},
+    form: remoteFormSnapshot(),
+  });
+}
+
+$('upload-pdf-btn').addEventListener('click', async () => {
+  const input = $('pdf-input');
+  const file = input?.files?.[0];
+  if (!file) {
+    pdfPickerOpenedByUploadButton = true;
+    setPdfStatus('Choose a PDF from your phone or laptop.', 'warn');
+    input?.click();
+    return;
+  }
+  await uploadSelectedPdf(file);
+});
+
+$('pdf-input')?.addEventListener('change', async () => {
+  const file = $('pdf-input')?.files?.[0];
+  if (file) {
+    const selectedMsg = `Selected PDF: ${file.name}`;
+    setText('pdf-selected-label', `${selectedMsg}.`);
+    setPdfStatus(selectedMsg, 'warn');
+    message(selectedMsg);
+    scheduleRemoteMetaSync({pdf_status: {message: selectedMsg, state: 'warn', selected_label: `${selectedMsg}.`}});
+    if (pdfPickerOpenedByUploadButton) {
+      pdfPickerOpenedByUploadButton = false;
+      await uploadSelectedPdf(file);
+    }
+  } else {
+    setText('pdf-selected-label', 'On phone: press Upload PDF, choose the file, and it will upload automatically.');
+    setPdfStatus('No PDF uploaded yet. This step is optional.');
+    pdfPickerOpenedByUploadButton = false;
+  }
 });
 
 window.addEventListener('load', () => {
-  applyTheme(currentTheme);
+  applyTheme('dark', false);
   activateTab('home-tab');
   const today = new Date();
   homeCalendarCursor = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -760,12 +917,9 @@ window.addEventListener('load', () => {
   renderSymptomTags();
   pollStatus();
   pollDbSummary();
-  if (IS_DISPLAY) {
-    pollRemoteState();
-    setInterval(pollRemoteState, 300);
-  } else {
-    pushRemoteState({message: 'Controller connected'});
-  }
+  pollRemoteState();
+  setInterval(pollRemoteState, 300);
+  pushRemoteState({message: `${VIEW_MODE} connected`, active_tab: activeTabId(), scroll: remoteScrollSnapshot()}, false);
   setInterval(pollStatus, 700);
   setInterval(pollDbSummary, 3000);
 });

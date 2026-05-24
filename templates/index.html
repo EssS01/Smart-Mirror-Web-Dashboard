@@ -17,7 +17,6 @@
         <a class="mode-link" href="/display" title="Open on Raspberry Pi screen">Display</a>
         <a class="mode-link" href="/controller" title="Open on phone/tablet controller">Controller</a>
         <div class="pill" id="remote-pill">Remote: {{ view_mode|default('controller') }}</div>
-        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch color theme">🌙 Dark mode</button>
         <div class="pill" id="server-pill">Backend: connecting...</div>
       </div>
     </header>
@@ -96,64 +95,6 @@
       </section>
 
       <section class="summary-grid">
-        <article class="card workflow-card">
-          <div class="card-title row-title">
-            <span>Patient &amp; Save Flow</span>
-            <span class="pill" id="workflow-state">Not started</span>
-          </div>
-          <p class="muted">Saving follows this order: <strong>Camera first → Temperature → Heart Rate → Save to DB</strong>. PDF lab upload is optional.</p>
-
-          <div class="patient-grid">
-            <label class="label">Saved user</label>
-            <select id="user-select"></select>
-
-            <label class="label">User name</label>
-            <input id="name-input" placeholder="Enter user name" />
-
-            <label class="label">Date of birth</label>
-            <input id="dob-input" type="date" />
-
-            <label class="label">Age</label>
-            <input id="age-output" readonly placeholder="Calculated from DoB" />
-
-            <label class="label">Gender</label>
-            <select id="gender-input">
-              <option value=""></option>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
-
-            <label class="label symptoms-label">Symptoms</label>
-            <div class="symptom-picker">
-              <select id="symptoms-select" multiple size="7" aria-label="Select symptoms">
-                {% for symptom in symptom_options %}
-                <option value="{{ symptom }}">{{ symptom }}</option>
-                {% endfor %}
-              </select>
-              <div class="selected-tags" id="symptom-tags" aria-live="polite"></div>
-              <p class="muted">Hold Ctrl on Windows/Linux or Cmd on Mac to choose more than one symptom.</p>
-            </div>
-          </div>
-
-          <div class="button-row wrap face-actions">
-            <button id="refresh-btn">Refresh DB</button>
-            <button id="register-btn">Register Face</button>
-            <button id="update-btn">Update Face</button>
-            <button class="danger" id="delete-btn">Delete Face</button>
-          </div>
-
-          <div class="stepper">
-            <button id="start-flow-btn">Start Checkup</button>
-            <button id="capture-camera-btn">1. Capture Camera</button>
-            <button id="capture-temp-btn">2. Capture Temp</button>
-            <button id="capture-heart-btn">3. Capture Heart</button>
-            <button class="save" id="save-db-btn">4. Save to Database</button>
-          </div>
-          <textarea id="notes-input" placeholder="Optional notes for this checkup"></textarea>
-          <div class="notice" id="face-message">Ready.</div>
-        </article>
-
         <article class="card status-card" id="summary-card">
           <div class="card-title">Main Summary</div>
           <div class="summary-kpis">
@@ -198,6 +139,66 @@
     </section>
 
     <section id="sensors-tab" class="tab-content">
+      <section class="workflow-section">
+        <article class="card workflow-card sensors-workflow-card">
+          <div class="card-title row-title">
+            <span>Patient &amp; Save Flow</span>
+            <span class="pill" id="workflow-state">Not started</span>
+          </div>
+          <p class="muted">Patient details and saving are handled here. Saving follows this order: <strong>Camera first → Temperature → Heart Rate → Save to DB</strong>. PDF/lab values are optional and can be incomplete.</p>
+
+          <div class="patient-grid">
+            <label class="label">Saved user</label>
+            <select id="user-select"></select>
+
+            <label class="label">User name</label>
+            <input id="name-input" placeholder="Enter user name" />
+
+            <label class="label">Date of birth</label>
+            <input id="dob-input" type="date" />
+
+            <label class="label">Age</label>
+            <input id="age-output" readonly placeholder="Calculated from DoB" />
+
+            <label class="label">Gender</label>
+            <select id="gender-input">
+              <option value=""></option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+
+            <label class="label symptoms-label">Symptoms</label>
+            <div class="symptom-picker">
+              <select id="symptoms-select" multiple size="7" aria-label="Select symptoms">
+                {% for symptom in symptom_options %}
+                <option value="{{ symptom }}">{{ symptom }}</option>
+                {% endfor %}
+              </select>
+              <div class="selected-tags" id="symptom-tags" aria-live="polite"></div>
+              <p class="muted">Hold Ctrl on Windows/Linux or Cmd on Mac to choose more than one symptom.</p>
+            </div>
+          </div>
+
+          <div class="button-row wrap face-actions">
+            <button id="refresh-btn" type="button">Refresh DB</button>
+            <button id="register-btn" type="button">Register Face</button>
+            <button id="update-btn" type="button">Update Face</button>
+            <button class="danger" id="delete-btn" type="button">Delete Face</button>
+          </div>
+
+          <div class="stepper">
+            <button id="start-flow-btn" type="button">Start Checkup</button>
+            <button id="capture-camera-btn" type="button">1. Capture Camera</button>
+            <button id="capture-temp-btn" type="button">2. Capture Temp</button>
+            <button id="capture-heart-btn" type="button">3. Capture Heart</button>
+            <button class="save" id="save-db-btn" type="button">4. Save to Database</button>
+          </div>
+          <textarea id="notes-input" placeholder="Optional notes for this checkup"></textarea>
+          <div class="notice" id="face-message">Ready.</div>
+        </article>
+      </section>
+
       <section class="sensor-grid">
         <article class="card status-card" id="temp-card">
           <div class="card-title">MLX90614 Temperature</div>
@@ -251,7 +252,7 @@
           <div class="step-status" id="step-camera">1. Camera: not captured</div>
           <div class="step-status" id="step-temp">2. Temperature: not captured</div>
           <div class="step-status" id="step-heart">3. Heart: not captured</div>
-          <p class="muted">Use the Summary tab to start/capture/save the full database record.</p>
+          <p class="muted">Use the Patient & Save Flow panel above to start, capture, and save the full database record.</p>
         </article>
       </section>
 
@@ -271,14 +272,16 @@
             {% endfor %}
           </form>
           <div class="button-row wrap">
-            <button id="save-lab-btn">Save Lab Results</button>
-            <button id="analyze-lab-btn">Analyze Ranges</button>
-            <button id="ai-lab-btn">AI Predict</button>
+            <button id="save-lab-btn" type="button">Save Lab Results</button>
+            <button id="analyze-lab-btn" type="button">Analyze Ranges</button>
+            <button id="ai-lab-btn" type="button">AI Predict</button>
           </div>
-          <div class="upload-row">
-            <input id="pdf-input" type="file" accept="application/pdf" />
-            <button id="upload-pdf-btn">Upload PDF</button>
+          <div class="upload-row pdf-upload-row">
+            <input id="pdf-input" type="file" accept=".pdf,application/pdf" />
+            <button id="upload-pdf-btn" type="button">Upload PDF</button>
           </div>
+          <p class="muted" id="pdf-selected-label">On phone: press Upload PDF, choose the file, and it will upload automatically.</p>
+          <p class="pdf-upload-status" id="pdf-upload-status">No PDF uploaded yet. This step is optional.</p>
           <div class="lab-result">
             <h3 id="lab-title">No Lab Data</h3>
             <div class="range" id="lab-coverage">Coverage: ---</div>

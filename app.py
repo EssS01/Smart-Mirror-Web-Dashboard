@@ -145,7 +145,7 @@ for path in (FACE_DB_PATH, MODEL_DIR, UPLOAD_DIR, LOGS_DIR):
     os.makedirs(path, exist_ok=True)
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
 # =========================
 # SQLITE DATABASE
@@ -154,17 +154,24 @@ _db_init_lock = threading.Lock()
 _capture_lock = threading.Lock()
 _capture_sessions = {}
 
-# Shared browser state for phone remote-control mode.
-# The Raspberry Pi display opens /display and follows changes sent from /controller.
+# Shared browser state for local-network remote-control mode.
+# Any open screen can drive the others: phone -> Pi, Pi -> phone, or tablet -> both.
 _remote_state_lock = threading.Lock()
 _remote_state = {
     "active_tab": "home-tab",
     "theme": "dark",
     "form": {},
     "calendar": {},
+    "scroll": {},
     "message": "",
+    "capture": None,
+    "lab_values": None,
+    "lab_analysis": None,
+    "pdf_status": None,
+    "summary": None,
     "updated_at": 0.0,
     "updated_by": "server",
+    "updated_view": "server",
 }
 
 
@@ -2331,13 +2338,12 @@ def api_remote_state_get():
 @app.route("/api/remote/state", methods=["POST"])
 def api_remote_state_post():
     data = request.get_json(silent=True) or {}
-    source = str(data.get("source") or "controller")[:80]
+    source = str(data.get("source") or "screen")[:120]
+    view_mode = str(data.get("view_mode") or "screen")[:40]
     allowed_tabs = {"home-tab", "summary-tab", "sensors-tab"}
     with _remote_state_lock:
         if data.get("active_tab") in allowed_tabs:
             _remote_state["active_tab"] = data.get("active_tab")
-        if data.get("theme") in ("light", "dark"):
-            _remote_state["theme"] = data.get("theme")
         if isinstance(data.get("form"), dict):
             current = dict(_remote_state.get("form") or {})
             current.update(data.get("form") or {})
@@ -2346,10 +2352,20 @@ def api_remote_state_post():
             current = dict(_remote_state.get("calendar") or {})
             current.update(data.get("calendar") or {})
             _remote_state["calendar"] = current
+        if isinstance(data.get("scroll"), dict):
+            current = dict(_remote_state.get("scroll") or {})
+            current.update(data.get("scroll") or {})
+            _remote_state["scroll"] = current
         if "message" in data:
-            _remote_state["message"] = str(data.get("message") or "")[:300]
+            _remote_state["message"] = str(data.get("message") or "")[:500]
+        # Optional live-action snapshots keep all screens visually aligned immediately,
+        # without waiting for the normal status/database polling intervals.
+        for key in ("capture", "lab_values", "lab_analysis", "pdf_status", "summary"):
+            if key in data:
+                _remote_state[key] = data.get(key)
         _remote_state["updated_at"] = time.time()
         _remote_state["updated_by"] = source
+        _remote_state["updated_view"] = view_mode
         state = dict(_remote_state)
     return jsonify({"ok": True, "state": state})
 
@@ -2437,8 +2453,10 @@ def api_lab_save(person_name):
                 ai_prediction = predict_liver_ai_from_values(saved)
             except Exception as e:
                 ai_prediction = {"title": "AI Prediction Unavailable", "state": STATUS_PROCESSING, "detail_text": str(e)}
-            upsert_lab_result(person_name, saved, source="manual", analysis=analysis, ai_prediction=ai_prediction, dob=dob, gender=gender)
-        return jsonify({"ok": True, "message": f"Lab results saved for {safe_person_name(person_name)}", "values": saved, "analysis": analysis, "ai_prediction": ai_prediction})
+        # Save a lab row even when only part of the form is filled.
+        # If all fields are empty, it still stores an intentional blank lab snapshot for this user.
+        upsert_lab_result(person_name, saved, source="manual", analysis=analysis, ai_prediction=ai_prediction, dob=dob, gender=gender)
+        return jsonify({"ok": True, "message": f"Lab results saved for {safe_person_name(person_name)}. Missing fields are allowed.", "values": saved, "analysis": analysis, "ai_prediction": ai_prediction})
     except Exception as e:
         return jsonify({"ok": False, "message": str(e)}), 400
 
@@ -2467,18 +2485,31 @@ def api_lab_upload_pdf(person_name):
         if "pdf" not in request.files:
             return jsonify({"ok": False, "message": "No PDF file uploaded"}), 400
         file = request.files["pdf"]
-        if not file.filename.lower().endswith(".pdf"):
+        original_filename = file.filename or "lab_report.pdf"
+        mimetype = (getattr(file, "mimetype", "") or "").lower()
+        looks_like_pdf = original_filename.lower().endswith(".pdf") or "pdf" in mimetype
+        if not looks_like_pdf:
             return jsonify({"ok": False, "message": "Please upload a PDF file"}), 400
         name = safe_person_name(person_name)
-        filename = f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        safe_original = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.basename(original_filename)).strip("._") or "lab_report.pdf"
+        if not safe_original.lower().endswith(".pdf"):
+            safe_original += ".pdf"
+        filename = f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_original}"
         pdf_path = os.path.join(UPLOAD_DIR, filename)
         file.save(pdf_path)
-        text, method = extract_text_from_pdf(pdf_path)
-        extracted = extract_liver_values_from_text(text)
         current = load_lab_results(name)
-        for key, value in extracted.items():
-            if value is not None:
-                current[key] = value
+        extracted = {}
+        method = "PDF saved"
+        extraction_error = None
+        try:
+            text, method = extract_text_from_pdf(pdf_path)
+            extracted = extract_liver_values_from_text(text)
+            for key, value in extracted.items():
+                if value is not None:
+                    current[key] = value
+        except Exception as e:
+            # Keep the uploaded PDF even if text extraction/OCR dependencies are missing.
+            extraction_error = str(e)
         saved = save_lab_results(name, current)
         analysis = analyze_saved_lab_results(saved)
         ai_prediction = None
@@ -2488,7 +2519,12 @@ def api_lab_upload_pdf(person_name):
             except Exception as e:
                 ai_prediction = {"title": "AI Prediction Unavailable", "state": STATUS_PROCESSING, "detail_text": str(e)}
         upsert_lab_result(name, saved, source="pdf", pdf_filename=filename, analysis=analysis, ai_prediction=ai_prediction)
-        return jsonify({"ok": True, "message": f"PDF processed using {method}", "values": saved, "extracted": extracted, "analysis": analysis, "ai_prediction": ai_prediction, "pdf_filename": filename})
+        if extraction_error:
+            msg = "PDF uploaded and saved, but automatic text extraction failed. You can enter the lab values manually."
+        else:
+            found_count = len([v for v in extracted.values() if v is not None])
+            msg = f"PDF processed using {method}. Extracted {found_count} lab value(s)."
+        return jsonify({"ok": True, "message": msg, "values": saved, "extracted": extracted, "analysis": analysis, "ai_prediction": ai_prediction, "pdf_filename": filename, "extraction_error": extraction_error})
     except Exception as e:
         return jsonify({"ok": False, "message": str(e)}), 500
 

@@ -1,0 +1,12 @@
+{
+  "age": 23,
+  "gender": "Female",
+  "alkaline_phosphatase": 135.0,
+  "aspartate_aminotransferase": 42.0,
+  "alanine_aminotransferase": 48.0,
+  "total_bilirubin": 1.2,
+  "direct_bilirubin": 0.3,
+  "albumin": 4.2,
+  "total_proteins": 7.1,
+  "albumin_globulin_ratio": 1.45
+}

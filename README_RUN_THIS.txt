@@ -184,3 +184,42 @@ Use the phone controller normally. The Raspberry Pi display follows the controll
 
 This is not HDMI/screen mirroring. It is local-network dashboard synchronization.
 The Raspberry Pi remains the backend/server, so camera and sensor readings still come from the Pi.
+
+REMOTE CONTROL SCROLL UPDATE
+============================
+The phone controller now also sends the current scroll position to the Raspberry Pi display.
+When you scroll on the phone in Summary or Sensors / Camera / Labs, the /display page follows the same approximate vertical position.
+Home remains fixed/non-scrollable by design for the smart-mirror screen.
+
+REMOTE + PDF + BLACK/WHITE UPDATE
+=================================
+This version improves the controller/display sync and styling:
+
+1) Bidirectional remote sync
+   - Phone: http://RASPBERRY_PI_IP:5000/controller
+   - Pi screen: http://127.0.0.1:5000/display
+   - Changes from the phone appear on the Pi.
+   - Changes made directly on the Pi also appear on the phone.
+   - Workflow results, selected tabs, forms, symptoms, lab values, lab analysis, notes, theme, and scroll position are synced.
+
+2) Phone PDF upload
+   - The PDF upload input now accepts .pdf and application/pdf.
+   - The backend also accepts phone/browser uploads where the MIME type says PDF even if the filename is unusual.
+   - The upload limit was raised to 64 MB.
+   - On phone: choose the PDF first, then tap Upload selected PDF.
+
+3) Missing lab fields
+   - Lab fields are optional.
+   - You can save manual lab values even if only some fields are filled.
+   - The full checkup can still be saved with no PDF and with missing lab values.
+
+4) Visual style
+   - All dashboard pages now use a consistent black/white smart-mirror style.
+
+2026-05 update - remote sync and layout cleanup
+----------------------------------------------
+- Patient details and the Camera -> Temperature -> Heart -> Save flow are now inside the Sensors / Camera / Labs tab.
+- The light/dark mode switch was removed. The whole dashboard uses the black background and white text style.
+- Remote controller sync was hardened so scroll/tab/message updates no longer overwrite lab values with stale data from the other device.
+- PDF upload status, extracted lab values, lab analysis, tabs, selected patient fields, symptoms, notes, and workflow steps sync between /controller and /display.
+- Partial lab saving is supported. You can save lab results even when some fields are missing.
